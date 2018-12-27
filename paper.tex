@@ -43,7 +43,7 @@
     传统2d游戏严重依赖spritesheet（即sprite，如场景中的角色或物体的各种姿态的“差分图像”）生成动画，尽管
     现在有一些基于绑骨的动画更加灵活（如Fire emblem heros的动画），但是要达到精细的效果也十分困难。而如果
     spritesheet能够按照目的自动生成，就能同时到达两者的好处。故本文探索要传统图形方法，传统机器学习方法与
-    深度学习方法自动生成spritesheet。
+    深度学习方法自动生成spritesheet。分别使用了Delaunay三角形分割映射，正态建模域CycleGAN及其变体实现。
 \end{abstract}
 
 \section{概论}
@@ -378,7 +378,7 @@ $G_A(x) x\in A$还有点形状外，$G_B(y)$就可以说是至多迁移了点纹
 \end{figure}
 
 
-\subsection{实验2}
+\subsubsection{实验2}
 
 实验1之所以之运行了24个epoch就结束了是因为我突然感觉B域不应该使用random crop增强，实验1是沿用默认的recale到
 短边为286像素的图片，然后取其中的$256 \times 256$的random crop，是AlexNet以来的方法，不过我觉得我这就是要
@@ -475,7 +475,7 @@ $G_B$的结果，理想情况也是与A域图片一致。另外对称的四个�
 \end{figure}
 
 但迭代到100 epoch后，$G_A(x)$就崩坏了\footnote{开始崩坏的是epoch 94，不过94-99保留的对应的图都不宜公开，所以选了
-epoch 100的图}，
+epoch 100的图。后面出现图不合适的时候也会选附近时间的的图}，
 这也可以通过对应的loss值的情况看出。之后100个epoch也差不多是这个情况。
 
 \begin{figure}[htb]
@@ -520,12 +520,343 @@ epoch 100的图}，
 
 可以看到生成器的转换功能崩坏的同时，恢复和恒等映射的结果这些正则项要求的结果却似乎十分不错，令人怀疑是
 分类器相对过于强大后，优化算法基本放弃了在映射上优化而专攻后者（作为最速下降方向），体现在真正的转换就
-仅仅是些噪声了。
+仅仅是些噪声了。各种损失的变化曲线如图 所示，注意程序仅仅在每过100个样本对$(x,y)$时记录一次当时的损失，
+所以这里的损失受噪声有一些影响。
+
+尽管\cite{zhu2017unpaired}辩称对于GAN来说loss意义不大，从而我在试验时也没怎么看loss而主要看图的效果，
+但事后分析来看loss曲线在病态情况出现时还是很有用的特征，图 \ref{fig:exp2loss}
+显示了实验2中总loss相关的8个loss的情况，是为取10阶移动平均平滑结果。
+
+\begin{figure}[htb]
+    \centering
+    \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp2_G_A.png}
+        \caption{$\mathcal{L}_{G_A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp2_D_A.png}
+        \caption{$\mathcal{L}_{D_A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp2_cycle_A.png}
+        %\caption{$G_B(G_A(x))$}
+        \caption{$\mathcal{L}_{cycle,A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp2_idt_A.png}
+        \caption{$\mathcal{L}_{iden,A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp2_G_B.png}
+        \caption{$\mathcal{L}_{G_B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp2_D_B.png}
+        \caption{$\mathcal{L}_{D_B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp2_cycle_B.png}
+        %\caption{$G_B(G_A(x))$}
+        \caption{$\mathcal{L}_{cycle,B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp2_idt_B.png}
+        \caption{$\mathcal{L}_{iden,B}$}
+      \end{subfigure}
+      \caption{实验2 loss曲线}
+      \label{fig:exp2loss}
+\end{figure}
+
+可以注意到图 \ref{fig:exp2loss} 中生成器在epoch96附近的$\mathcal{L}_{G_X}$突然崩坏
+而分类器的$\mathcal{L}_{D_X}$的收敛于0，暗示着
+$D_X$的过于强势。然而说到底$G_X$也一直在优化，它又在优化什么呢？可以看到重建损失$\mathcal{L}_{cycle}$与
+恒等映射损失$\mathcal{L}_{iden}$作为生成器的目标之一一直在下降，只是在$\mathcal{L}_{G_X}$崩坏的同时，
+有一个更快的下降的趋势，说明算法的最速方向被放到了这两个损失上，使得我们真正的目标反而无法得到优化，
+这说明这两个损失的不恰当权重在上下文不恰当时反而使得算法效果更恶化。
+
+\subsubsection{实验3}
+
+epoch96附近到底发生了什么呢？我这只有日志和快照可以看到，所以我打算从epoch 90时的模型快照开始重新迭代看看这是不是必然的，
+结果发现到模型不再陷入上文所述的困境中，最后效果图如图 \ref{fig:exp3epoch194} 所示，
+loss如图 \ref{fig:exp3loss} 所示，并未观测到明显的崩坏现象， 看来这还是有一定随机性的。
+
+\begin{figure}[htb]
+    \centering
+    \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_epoch194_real_A.png}
+        \caption{$x \in A$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_epoch194_fake_B.png}
+        \caption{$G_A(x)$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_epoch194_rec_A.png}
+        %\caption{$G_B(G_A(x))$}
+        \caption{$G_{BA}(x))$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_epoch194_idt_A.png}
+        \caption{$G_A(y)$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_epoch194_real_B.png}
+        \caption{$y \in B$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_epoch194_fake_A.png}
+        \caption{$G_B(y)$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_epoch194_rec_B.png}
+        %\caption{$G_A(G_B(y))$}
+        \caption{$G_{AB}(y))$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_epoch194_idt_B.png}
+        \caption{$G_B(x)$}
+      \end{subfigure}
+      \caption{实验3 epoch194的结果}
+      \label{fig:exp3epoch194}
+\end{figure}
+
+\begin{figure}[htb]
+    \centering
+    \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_G_A.png}
+        \caption{$\mathcal{L}_{G_A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_D_A.png}
+        \caption{$\mathcal{L}_{D_A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_cycle_A.png}
+        %\caption{$G_B(G_A(x))$}
+        \caption{$\mathcal{L}_{cycle,A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_idt_A.png}
+        \caption{$\mathcal{L}_{iden,A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_G_B.png}
+        \caption{$\mathcal{L}_{G_B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_D_B.png}
+        \caption{$\mathcal{L}_{D_B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_cycle_B.png}
+        %\caption{$G_B(G_A(x))$}
+        \caption{$\mathcal{L}_{cycle,B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp3_idt_B.png}
+        \caption{$\mathcal{L}_{iden,B}$}
+      \end{subfigure}
+      \caption{实验3 loss曲线}
+      \label{fig:exp3loss}
+\end{figure}
+
+\subsubsection{实验4}
+
+这里将$\mathcal{L}_{iden}$的权重从$0.5$调到$1.0$从头迭代完200 epoch，
+虽然根据之前结论当时应该做相反的调整看看是不是有改善才对，不过当时没画loss图。结果与实验3差不多。
+所以只提供loss曲线图 与前面比较。
+
+\begin{figure}[htb]
+    \centering
+    \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp4_G_A.png}
+        \caption{$\mathcal{L}_{G_A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp4_D_A.png}
+        \caption{$\mathcal{L}_{D_A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp4_cycle_A.png}
+        %\caption{$G_B(G_A(x))$}
+        \caption{$\mathcal{L}_{cycle,A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp4_idt_A.png}
+        \caption{$\mathcal{L}_{iden,A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp4_G_B.png}
+        \caption{$\mathcal{L}_{G_B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp4_D_B.png}
+        \caption{$\mathcal{L}_{D_B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp4_cycle_B.png}
+        %\caption{$G_B(G_A(x))$}
+        \caption{$\mathcal{L}_{cycle,B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp4_idt_B.png}
+        \caption{$\mathcal{L}_{iden,B}$}
+      \end{subfigure}
+      \caption{实验4 loss曲线}
+      \label{fig:exp3loss}
+\end{figure}
+
+\subsubsection{实验5}
+
+前面生成器用的resnet\_9blocks的实现有9个residual block，如果能用更小的网络结构可以得到相同的效果就可以加速训练和
+测试了。所以我考虑了仅使用6个residual block的实现，即结构改为：
+c7s1-64,d128,d256,R256x6,u128,u64,c7s1-3，迭代141 epoch。结果类似实验2的结果，生成效果见图 \ref{fig:exp5epoch140}
+loss曲线图与实验6的loss曲线放在一张图中比较。
+
+\begin{figure}[htb]
+    \centering
+    \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp5_epoch140_real_A.png}
+        \caption{$x \in A$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp5_epoch140_fake_B.png}
+        \caption{$G_A(x)$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp5_epoch140_rec_A.png}
+        %\caption{$G_B(G_A(x))$}
+        \caption{$G_{BA}(x))$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp5_epoch140_idt_A.png}
+        \caption{$G_A(y)$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp5_epoch140_real_B.png}
+        \caption{$y \in B$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp5_epoch140_fake_A.png}
+        \caption{$G_B(y)$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp5_epoch140_rec_B.png}
+        %\caption{$G_A(G_B(y))$}
+        \caption{$G_{AB}(y))$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp5_epoch140_idt_B.png}
+        \caption{$G_B(x)$}
+      \end{subfigure}
+      \caption{实验5 epoch140的结果}
+      \label{fig:exp5epoch140}
+\end{figure}
+
+\subsubsection{实验6}
+
+由于感觉生成器两个损失越俎代庖，所以给$\mathcal{L}_{GAN}$的损失权重加一倍迭代200轮。对比两者的损失曲线可见 
+\ref{fig:exp6loss}，虽然实验6的两个损失都比实验5的同时高，但效果却并没有多改善，也许这还是生成器与鉴别器相对能力
+差距较大导致的。
+
+\begin{figure}[htb]
+    \centering
+    \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp6_G_A.png}
+        \caption{$\mathcal{L}_{G_A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp6_D_A.png}
+        \caption{$\mathcal{L}_{D_A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp6_cycle_A.png}
+        %\caption{$G_B(G_A(x))$}
+        \caption{$\mathcal{L}_{cycle,A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp6_idt_A.png}
+        \caption{$\mathcal{L}_{iden,A}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp6_G_B.png}
+        \caption{$\mathcal{L}_{G_B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp6_D_B.png}
+        \caption{$\mathcal{L}_{D_B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp6_cycle_B.png}
+        %\caption{$G_B(G_A(x))$}
+        \caption{$\mathcal{L}_{cycle,B}$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp6_idt_B.png}
+        \caption{$\mathcal{L}_{iden,B}$}
+      \end{subfigure}
+      \caption{实验5,6 loss曲线}
+      \label{fig:exp6loss}
+\end{figure}
+
+\subsubsection{实验7}
+
+之前的实验中均采取将两域图片压成同尺寸处理的方法，如果A域图片作为本来的大尺寸高分辨率的图片保持相对较多的信息
+($192/times 192$，取$192$是因为注意到$48$放大4倍后为$192$
+)而B域图片不进行蹩脚的升采样（保持$48\times 48$而非$64\times 64$），结果是否会有改善呢？直接
+修改输入输出是不可行的，因为$\mathcal{L}_{iden}$要求两域相同，一种方式是直接取消这个项，不过我是直接线性插值。
+而且此时两个生成器的结构是不一样的。$G_A$为c7s1-32,d64,d128,R128x6,c7s1-3。即去掉将尺寸增大（恢复）的层，同时
+隐单元数全体除以2，由于显存的原因\footnote{这里也考虑过float16替换float32的优化，不过碰到一些奇怪的BUG就算了。}
+而$G_B$类似，为：c7s1-32,R128x6,u128,u64,c7s1-3。即去掉了降尺寸的层，同时单元数减一半。而判别器与之前结构类似，
+但单元数除以4以令两者的能力差不那么大以期能够改善优化。
+
+虽然进行了一些优化，但是算法运行的很慢，我间间断断运行了3天才完成了61 epoch。效果也不怎么，如图 
+\ref{fig:exp7epoch61}所示。可能还是生成器能力不够的原因。
+
+\begin{figure}[htb]
+    \centering
+    \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp7_epoch061_real_A.png}
+        \caption{$x \in A$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp7_epoch061_fake_B.png}
+        \caption{$G_A(x)$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp7_epoch061_rec_A.png}
+        %\caption{$G_B(G_A(x))$}
+        \caption{$G_{BA}(x))$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp7_epoch061_idt_A.png}
+        \caption{$G_A(y)$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp7_epoch061_real_B.png}
+        \caption{$y \in B$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp7_epoch061_fake_A.png}
+        \caption{$G_B(y)$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp7_epoch061_rec_B.png}
+        %\caption{$G_A(G_B(y))$}
+        \caption{$G_{AB}(y))$}
+      \end{subfigure}
+      \begin{subfigure}[b]{0.23\linewidth}
+        \includegraphics[width=\linewidth]{exp7_epoch061_idt_B.png}
+        \caption{$G_B(x)$}
+      \end{subfigure}
+      \caption{实验7 epoch61的结果}
+      \label{fig:exp7epoch61}
+\end{figure}
 
 \section{结论}
 
-闷声发大财，才是最好的。+1s
-
+由于时间受限，使用的三个方法效果都不怎么样，令人遗憾。就连初看起来十分蹩脚的\cite{horsley2017building}
+对比起我做的垃圾来看都眉清目秀起来了。
 
 \bibliography{paper} 
 \bibliographystyle{ieeetr}

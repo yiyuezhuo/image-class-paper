@@ -7,3 +7,7 @@
 *.gz
 *.pdf
 *.txt
+*.nax
+*.snm
+*.toc
+*.nav
