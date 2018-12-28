@@ -5,6 +5,8 @@ Created on Thu Dec 27 21:16:33 2018
 @author: yiyuezhuo
 """
 
+keys = ['D_A','G_A','cycle_A','idt_A','D_B','G_B','cycle_B','idt_B']
+
 def parse(fname):
     #with open('loss_log.txt') as f:
     #    lines = f.readlines()
@@ -27,7 +29,6 @@ def parse(fname):
             record[key] = value
         records.append(record)
         
-    keys = ['D_A','G_A','cycle_A','idt_A','D_B','G_B','cycle_B','idt_B']
     lists = {key:[] for key in keys}
     for record in records:
         for key in keys:
@@ -38,4 +39,8 @@ def parse(fname):
 lists = parse('loss_log.txt')
 import matplotlib.pyplot as plt
 import numpy as np
-plt.plot(lists['D_A'])
+for key in keys:
+    print(key)
+    plt.plot(np.convolve(lists[key], [1/10]*10,'valid'))
+    plt.savefig('exp2_'+key +'.png')
+    plt.show()
